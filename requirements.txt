@@ -1,8 +1,8 @@
-flask
+Flask
+Flask-Cors
 gunicorn
 python-dotenv
-apscheduler
-requests
-openai>=1.0.0
 twilio
+openai>=1.0.0
+apscheduler
 pytz
