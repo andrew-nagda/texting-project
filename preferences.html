@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BrainTrain Daily — Update Preferences</title>
+  <style>
+    :root { --bg:#0f172a; --card:#111827; --text:#e5e7eb; --muted:#9ca3af; --accent:#38bdf8; --line:#1f2937; }
+    * { box-sizing:border-box; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin:0; background:linear-gradient(135deg,#0b1220,#111827); color:var(--text); min-height:100vh; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 20px; }
+    .card { width:100%; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:22px; box-shadow:0 12px 30px rgba(0,0,0,.35); margin-top:72px; }
+    h1 { margin:0 0 6px; font-size:24px; } p.sub { color:#9ca3af; margin:0 0 16px; }
+    label { font-size:13px; color:#cbd5e1; display:block; margin:14px 0 6px; }
+    input, select { width:100%; padding:12px 14px; background:#0b1220; color:var(--text); border:1px solid var(--line); border-radius:10px; outline:none; }
+    input::placeholder { color:#8ea0bf; }
+    input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(56,189,248,.15); }
+    .row { display:flex; gap:12px; } .row>*{flex:1;}
+    button { width:100%; margin-top:18px; padding:12px 14px; background:var(--accent); color:#001219; border:0; border-radius:10px; font-weight:700; cursor:pointer; }
+    footer { margin-top:16px; font-size:12px; color:#a1a1aa; text-align:left; }
+
+    /* topbar + X close */
+    .topbar { position:fixed; top:0; left:0; right:0; height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 16px; backdrop-filter: blur(6px); background:rgba(15,23,42,0.6); border-bottom:1px solid var(--line); z-index:5; }
+    .brand { font-weight:700; letter-spacing:.2px; color:#e5e7eb; text-decoration:none; }
+    .brand:hover { text-decoration:underline; }
+    .hamburger { width:36px; height:28px; display:flex; flex-direction:column; justify-content:space-between; cursor:pointer; }
+    .hamburger span { height:3px; background:#cbd5e1; border-radius:3px; display:block; }
+    .menu { position:fixed; top:0; right:-260px; width:260px; height:100vh; background:#0b1220; border-left:1px solid var(--line); box-shadow:-12px 0 30px rgba(0,0,0,.35); padding:16px; transition:right .25s ease; z-index:6; }
+    .menu.open { right:0; }
+    .menu .head { display:flex; align-items:center; justify-content:space-between; padding:10px 4px 6px; border-bottom:1px solid var(--line); margin-bottom:8px; }
+    .menu .close { width:28px; height:28px; position:relative; cursor:pointer; }
+    .menu .close::before, .menu .close::after { content:""; position:absolute; left:4px; right:4px; top:13px; height:2px; background:#cbd5e1; transform-origin:center; }
+    .menu .close::before { transform:rotate(45deg); }
+    .menu .close::after  { transform:rotate(-45deg); }
+    .menu a { display:block; color:#93c5fd; text-decoration:none; padding:12px 6px; border-radius:8px; }
+    .menu a:hover { background:#0f1b33; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="brand" href="/">BrainTrain Daily</a>
+    <div id="hamburger" class="hamburger" aria-label="Open menu" role="button" tabindex="0">
+      <span></span><span></span><span></span>
+    </div>
+  </div>
+
+  <nav id="menu" class="menu" aria-label="Site">
+    <div class="head">
+      <div>Menu</div>
+      <div id="menuClose" class="close" aria-label="Close menu" role="button" tabindex="0"></div>
+    </div>
+    <a href="/">Home</a>
+    <a href="/join">Sign Up</a>
+    <a href="/preferences">Update Preferences</a>
+    <a href="/how">How it Works</a>
+  </nav>
+
+  <div class="wrap">
+    <div class="card">
+      <h1>Update Preferences</h1>
+      <p class="sub">Enter your phone to fetch your current settings, then save changes.</p>
+
+      <form id="fetchForm">
+        <label for="phone_lookup">Registered phone (E.164 or US 10-digit)</label>
+        <input id="phone_lookup" placeholder="e.g., +1 508-555-1234 or 5085551234" required />
+        <button type="submit">Fetch my settings</button>
+      </form>
+
+      <form id="prefsForm" style="display:none;">
+        <div class="row">
+          <div>
+            <label for="name">Full name</label>
+            <input id="name" required />
+          </div>
+          <div>
+            <label for="phone">Mobile (read-only; E.164)</label>
+            <input id="phone" readonly />
+          </div>
+        </div>
+
+        <label for="track">Track</label>
+        <select id="track" required>
+          <option>Consulting</option><option>Investment Banking</option><option>High Finance</option>
+          <option>GMAT</option><option>GRE</option><option>SAT</option><option>ACT</option>
+          <option>CPA</option><option>CMA</option><option>CFA Level I</option><option>CFA Level II</option><option>CFA Level III</option>
+        </select>
+
+        <div class="row">
+          <div>
+            <label for="per_day">Texts per day</label>
+            <select id="per_day"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+          </div>
+          <div>
+            <label for="timezone">Time zone</label>
+            <input id="timezone" list="tzlist" placeholder="America/New_York" required />
+            <datalist id="tzlist">
+              <option value="America/New_York"></option><option value="America/Chicago"></option>
+              <option value="America/Denver"></option><option value="America/Los_Angeles"></option>
+              <option value="America/Phoenix"></option><option value="America/Toronto"></option>
+              <option value="America/Vancouver"></option><option value="Europe/London"></option>
+              <option value="Europe/Paris"></option><option value="Europe/Berlin"></option>
+              <option value="Asia/Kolkata"></option><option value="Asia/Singapore"></option>
+              <option value="Asia/Tokyo"></option><option value="Australia/Sydney"></option>
+            </datalist>
+          </div>
+        </div>
+
+        <button id="saveBtn" type="submit">Save changes</button>
+      </form>
+
+      <footer>© BrainTrain Daily</footer>
+    </div>
+  </div>
+
+  <script>
+    // menu
+    const menu = document.getElementById('menu');
+    const ham = document.getElementById('hamburger');
+    const closeBtn = document.getElementById('menuClose');
+    const toggle = () => menu.classList.toggle('open');
+    ham.addEventListener('click', toggle);
+    ham.addEventListener('keypress', e => { if (e.key==='Enter'||e.key===' ') toggle(); });
+    closeBtn.addEventListener('click', () => menu.classList.remove('open'));
+    closeBtn.addEventListener('keypress', e => { if (e.key==='Enter'||e.key===' ') menu.classList.remove('open'); });
+    menu.addEventListener('click', e => { if (e.target.tagName === 'A') menu.classList.remove('open'); });
+
+    // normalize lookup: allow 10-digit US
+    function normalizeLookup(input) {
+      const s = input.trim();
+      if (s.startsWith('+')) return s;
+      const d = s.replace(/\D/g,'');
+      if (d.length === 10) return '+1' + d;
+      if (d.length === 11 && d.startsWith('1')) return '+' + d;
+      return s;
+    }
+
+    const fetchForm = document.getElementById('fetchForm');
+    const prefsForm = document.getElementById('prefsForm');
+
+    fetchForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const phone = normalizeLookup(document.getElementById('phone_lookup').value);
+      try {
+        const res = await fetch('/me?phone=' + encodeURIComponent(phone));
+        if (!res.ok) throw new Error(await res.text());
+        const u = await res.json();
+        document.getElementById('name').value = u.name || '';
+        document.getElementById('phone').value = u.phone || '';
+        document.getElementById('track').value = u.track || 'Consulting';
+        document.getElementById('per_day').value = (u.per_day || 1).toString();
+        document.getElementById('timezone').value = u.timezone || 'America/New_York';
+        prefsForm.style.display = '';
+      } catch (err) {
+        alert('Lookup failed: ' + err.message);
+      }
+    });
+
+    prefsForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        phone: document.getElementById('phone').value.trim(),
+        name: document.getElementById('name').value.trim(),
+        track: document.getElementById('track').value,
+        per_day: parseInt(document.getElementById('per_day').value, 10),
+        timezone: document.getElementById('timezone').value.trim()
+      };
+      const btn = document.getElementById('saveBtn'); btn.disabled = true;
+      try {
+        const res = await fetch('/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error(await res.text());
+        alert('Preferences updated.');
+      } catch (err) {
+        alert('Update failed: ' + err.message);
+      } finally { btn.disabled = false; }
+    });
+  </script>
+</body>
+</html>

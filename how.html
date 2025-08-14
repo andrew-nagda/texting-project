@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BrainTrain Daily — How it Works</title>
+  <style>
+    :root { --bg:#0f172a; --card:#111827; --text:#e5e7eb; --muted:#9ca3af; --accent:#38bdf8; --line:#1f2937; }
+    * { box-sizing:border-box; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin:0; background:linear-gradient(135deg,#0b1220,#111827); color:var(--text); min-height:100vh; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 20px; }
+    .card { width:100%; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:22px; box-shadow:0 12px 30px rgba(0,0,0,.35); margin-top:72px; }
+    h1 { margin:0 0 6px; font-size:24px; }
+    p { color:#e5e7eb; line-height:1.55; } ul{ margin:8px 0 0 18px; }
+    footer { margin-top:16px; font-size:12px; color:#a1a1aa; text-align:left; }
+
+    /* topbar + X close */
+    .topbar { position:fixed; top:0; left:0; right:0; height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 16px; backdrop-filter: blur(6px); background:rgba(15,23,42,0.6); border-bottom:1px solid var(--line); z-index:5; }
+    .brand { font-weight:700; letter-spacing:.2px; color:#e5e7eb; text-decoration:none; }
+    .brand:hover { text-decoration:underline; }
+    .hamburger { width:36px; height:28px; display:flex; flex-direction:column; justify-content:space-between; cursor:pointer; }
+    .hamburger span { height:3px; background:#cbd5e1; border-radius:3px; display:block; }
+    .menu { position:fixed; top:0; right:-260px; width:260px; height:100vh; background:#0b1220; border-left:1px solid var(--line); box-shadow:-12px 0 30px rgba(0,0,0,.35); padding:16px; transition:right .25s ease; z-index:6; }
+    .menu.open { right:0; }
+    .menu .head { display:flex; align-items:center; justify-content:space-between; padding:10px 4px 6px; border-bottom:1px solid var(--line); margin-bottom:8px; }
+    .menu .close { width:28px; height:28px; position:relative; cursor:pointer; }
+    .menu .close::before, .menu .close::after { content:""; position:absolute; left:4px; right:4px; top:13px; height:2px; background:#cbd5e1; transform-origin:center; }
+    .menu .close::before { transform:rotate(45deg); }
+    .menu .close::after  { transform:rotate(-45deg); }
+    .menu a { display:block; color:#93c5fd; text-decoration:none; padding:12px 6px; border-radius:8px; }
+    .menu a:hover { background:#0f1b33; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="brand" href="/">BrainTrain Daily</a>
+    <div id="hamburger" class="hamburger" aria-label="Open menu" role="button" tabindex="0">
+      <span></span><span></span><span></span>
+    </div>
+  </div>
+
+  <nav id="menu" class="menu" aria-label="Site">
+    <div class="head">
+      <div>Menu</div>
+      <div id="menuClose" class="close" aria-label="Close menu" role="button" tabindex="0"></div>
+    </div>
+    <a href="/">Home</a>
+    <a href="/join">Sign Up</a>
+    <a href="/preferences">Update Preferences</a>
+    <a href="/how">How it Works</a>
+  </nav>
+
+  <div class="wrap">
+    <div class="card">
+      <h1>How it Works</h1>
+      <p>BrainTrain Daily sends you brief practice questions by SMS between <b>9:00 AM and 10:00 PM</b> in your selected time zone. Reply with your answer to see if you’re correct.</p>
+
+      <h3>Text Commands</h3>
+      <ul>
+        <li><b>STATS</b> — shows answered, correct, accuracy %, and your level (Calibrating → Elite).</li>
+        <li><b>ANOTHER</b> — get another question right away (when on-demand is enabled).</li>
+        <li><b>HINT</b> — receive a short nudge if you’re stuck.</li>
+        <li><b>STOP</b> — opt out anytime. <b>START</b> to opt back in.</li>
+      </ul>
+
+      <h3>Tracks</h3>
+      <ul>
+        <li>Consulting, Investment Banking, High Finance</li>
+        <li>GMAT, GRE, SAT, ACT</li>
+        <li>CPA, CMA</li>
+        <li>CFA Level I, II, III</li>
+      </ul>
+
+      <h3>Why it works</h3>
+      <ul>
+        <li><b>Spaced practice</b> — a quick daily question sticks better than marathon cramming.</li>
+        <li><b>Low friction</b> — lives in your texts, not another app you’ll forget to open.</li>
+        <li><b>Immediate feedback</b> — answer, check, learn.</li>
+      </ul>
+
+      <footer>© BrainTrain Daily</footer>
+    </div>
+  </div>
+
+  <script>
+    const menu = document.getElementById('menu');
+    const ham = document.getElementById('hamburger');
+    const closeBtn = document.getElementById('menuClose');
+    const toggle = () => menu.classList.toggle('open');
+    ham.addEventListener('click', toggle);
+    ham.addEventListener('keypress', e => { if (e.key==='Enter'||e.key===' ') toggle(); });
+    closeBtn.addEventListener('click', () => menu.classList.remove('open'));
+    closeBtn.addEventListener('keypress', e => { if (e.key==='Enter'||e.key===' ') menu.classList.remove('open'); });
+    menu.addEventListener('click', e => { if (e.target.tagName === 'A') menu.classList.remove('open'); });
+  </script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BrainTrain Daily — Sign Up</title>
+  <style>
+    :root { --bg:#0f172a; --card:#111827; --text:#e5e7eb; --muted:#9ca3af; --accent:#38bdf8; --line:#1f2937; }
+    * { box-sizing:border-box; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin:0; background:linear-gradient(135deg,#0b1220,#111827); color:var(--text); min-height:100vh; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 20px; }
+    .card { width:100%; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:22px; box-shadow:0 12px 30px rgba(0,0,0,.35); margin-top:72px; }
+    h1 { margin:0 0 6px; font-size:24px; }
+    p.sub { margin:0 0 16px; color:var(--muted); font-size:14px; }
+    label { font-size:13px; color:#cbd5e1; display:block; margin:14px 0 6px; }
+    input, select { width:100%; padding:12px 14px; background:#0b1220; color:var(--text); border:1px solid var(--line); border-radius:10px; outline:none; }
+    input::placeholder { color:#8ea0bf; }
+    input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(56,189,248,.15); }
+    .row { display:flex; gap:12px; } .row>*{flex:1;}
+    button { width:100%; margin-top:18px; padding:12px 14px; background:var(--accent); color:#001219; border:0; border-radius:10px; font-weight:700; cursor:pointer; }
+    small.help { color:#a1a1aa; display:block; margin-top:6px; }
+    footer { margin-top:16px; font-size:12px; color:#a1a1aa; text-align:left; }
+
+    /* topbar + X close */
+    .topbar { position:fixed; top:0; left:0; right:0; height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 16px; backdrop-filter: blur(6px); background:rgba(15,23,42,0.6); border-bottom:1px solid var(--line); z-index:5; }
+    .brand { font-weight:700; letter-spacing:.2px; color:#e5e7eb; text-decoration:none; }
+    .brand:hover { text-decoration:underline; }
+    .hamburger { width:36px; height:28px; display:flex; flex-direction:column; justify-content:space-between; cursor:pointer; }
+    .hamburger span { height:3px; background:#cbd5e1; border-radius:3px; display:block; }
+    .menu { position:fixed; top:0; right:-260px; width:260px; height:100vh; background:#0b1220; border-left:1px solid var(--line); box-shadow:-12px 0 30px rgba(0,0,0,.35); padding:16px; transition:right .25s ease; z-index:6; }
+    .menu.open { right:0; }
+    .menu .head { display:flex; align-items:center; justify-content:space-between; padding:10px 4px 6px; border-bottom:1px solid var(--line); margin-bottom:8px; }
+    .menu .close { width:28px; height:28px; position:relative; cursor:pointer; }
+    .menu .close::before, .menu .close::after { content:""; position:absolute; left:4px; right:4px; top:13px; height:2px; background:#cbd5e1; transform-origin:center; }
+    .menu .close::before { transform:rotate(45deg); }
+    .menu .close::after  { transform:rotate(-45deg); }
+    .menu a { display:block; color:#93c5fd; text-decoration:none; padding:12px 6px; border-radius:8px; }
+    .menu a:hover { background:#0f1b33; }
+
+    /* nicer checkbox */
+    .consent { display:flex; align-items:flex-start; gap:12px; margin-top:12px; }
+    .checkwrap { position:relative; width:22px; height:22px; }
+    .checkwrap input { opacity:0; position:absolute; inset:0; cursor:pointer; }
+    .checkui { position:absolute; inset:0; border-radius:6px; border:2px solid var(--line); background:#0b1220; display:grid; place-items:center; transition:.15s; }
+    .checkwrap input:checked + .checkui { border-color:var(--accent); background:rgba(56,189,248,.15); }
+    .checkui svg { width:14px; height:14px; opacity:0; transition:.15s; }
+    .checkwrap input:checked + .checkui svg { opacity:1; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="brand" href="/">BrainTrain Daily</a>
+    <div id="hamburger" class="hamburger" aria-label="Open menu" role="button" tabindex="0">
+      <span></span><span></span><span></span>
+    </div>
+  </div>
+
+  <nav id="menu" class="menu" aria-label="Site">
+    <div class="head">
+      <div>Menu</div>
+      <div id="menuClose" class="close" aria-label="Close menu" role="button" tabindex="0"></div>
+    </div>
+    <a href="/">Home</a>
+    <a href="/join">Sign Up</a>
+    <a href="/preferences">Update Preferences</a>
+    <a href="/how">How it Works</a>
+  </nav>
+
+  <div class="wrap">
+    <div class="card">
+      <h1>Sign Up</h1>
+      <p class="sub">Get one smart practice question a day by text. Reply to check your answer.</p>
+
+      <form id="signupForm" autocomplete="on">
+        <div class="row">
+          <div>
+            <label for="name">Full name</label>
+            <input id="name" name="name" type="text" placeholder="Your name" required />
+          </div>
+          <div>
+            <label for="phone">Mobile (E.164)</label>
+            <input id="phone" name="phone" type="tel" placeholder="e.g., +1 508-555-1234" required />
+            <small class="help">Country code required (e.g., <b>+1</b> for US).</small>
+          </div>
+        </div>
+
+        <label for="track">Track</label>
+        <select id="track" name="track" required>
+          <option>Consulting</option><option>Investment Banking</option><option>High Finance</option>
+          <option>GMAT</option><option>GRE</option><option>SAT</option><option>ACT</option>
+          <option>CPA</option><option>CMA</option><option>CFA Level I</option><option>CFA Level II</option><option>CFA Level III</option>
+        </select>
+
+        <div class="row">
+          <div>
+            <label for="per_day">Texts per day</label>
+            <select id="per_day" name="per_day" required>
+              <option value="1" selected>1</option><option value="2">2</option><option value="3">3</option>
+            </select>
+          </div>
+          <div>
+            <label for="timezone">Time zone</label>
+            <input id="timezone" name="timezone" list="tzlist" placeholder="America/New_York" required />
+            <datalist id="tzlist">
+              <option value="America/New_York"></option><option value="America/Chicago"></option>
+              <option value="America/Denver"></option><option value="America/Los_Angeles"></option>
+              <option value="America/Phoenix"></option><option value="America/Toronto"></option>
+              <option value="America/Vancouver"></option><option value="Europe/London"></option>
+              <option value="Europe/Paris"></option><option value="Europe/Berlin"></option>
+              <option value="Asia/Kolkata"></option><option value="Asia/Singapore"></option>
+              <option value="Asia/Tokyo"></option><option value="Australia/Sydney"></option>
+            </datalist>
+            <small class="help">Start typing to search.</small>
+          </div>
+        </div>
+
+        <div class="consent">
+          <label class="checkwrap">
+            <input id="consent" type="checkbox" required />
+            <span class="checkui">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </span>
+          </label>
+          <div>I agree to receive up to <span id="perDayPreview">1</span> text(s) per day from BrainTrain Daily. Reply STOP to opt out.</div>
+        </div>
+
+        <button id="submitBtn" type="submit">Join BrainTrain Daily</button>
+      </form>
+
+      <footer>© BrainTrain Daily</footer>
+    </div>
+  </div>
+
+  <script>
+    // menu
+    const menu = document.getElementById('menu');
+    const ham = document.getElementById('hamburger');
+    const closeBtn = document.getElementById('menuClose');
+    const toggle = () => menu.classList.toggle('open');
+    ham.addEventListener('click', toggle);
+    ham.addEventListener('keypress', e => { if (e.key==='Enter'||e.key===' ') toggle(); });
+    closeBtn.addEventListener('click', () => menu.classList.remove('open'));
+    closeBtn.addEventListener('keypress', e => { if (e.key==='Enter'||e.key===' ') menu.classList.remove('open'); });
+    menu.addEventListener('click', e => { if (e.target.tagName === 'A') menu.classList.remove('open'); });
+
+    // per-day preview
+    const perDay = document.getElementById('per_day');
+    const perDayPreview = document.getElementById('perDayPreview');
+    perDay.addEventListener('change', () => perDayPreview.textContent = perDay.value);
+
+    // submit — requires E.164 (server enforces as well)
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('submitBtn'); btn.disabled = true;
+      const phone = document.getElementById('phone').value.trim();
+      if (!phone.startsWith('+')) { alert('Please include country code (e.g., +1 …)'); btn.disabled=false; return; }
+
+      const payload = {
+        name: document.getElementById('name').value.trim(),
+        phone,
+        track: document.getElementById('track').value,
+        per_day: parseInt(document.getElementById('per_day').value, 10),
+        timezone: document.getElementById('timezone').value.trim(),
+        consent: document.getElementById('consent').checked
+      };
+      try {
+        const res = await fetch('/signup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        if (!res.ok) throw new Error(await res.text());
+        alert('Success! You’re on the list for BrainTrain Daily.');
+        e.target.reset(); perDayPreview.textContent = '1';
+      } catch (err) {
+        alert('Signup failed: ' + err.message);
+      } finally { btn.disabled = false; }
+    });
+  </script>
+</body>
+</html>
