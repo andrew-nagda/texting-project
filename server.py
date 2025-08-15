@@ -8,9 +8,11 @@ CORS(app)
 
 DATA_FILE = "users.json"
 ALLOWED_TRACKS = {
-    "Consulting", "Investment Banking", "High Finance", "GMAT", "GRE", "SAT", "ACT",
-    "CPA", "CMA", "CFA Level I", "CFA Level II", "CFA Level III"
+    "Consulting","Investment Banking","High Finance",
+    "GMAT","GRE","SAT","ACT","LSAT",
+    "CPA","CMA","CFA Level I","CFA Level II","CFA Level III"
 }
+
 
 # -------- storage ----------
 def load_users():
