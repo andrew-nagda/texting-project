@@ -1,9 +1,10 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, abort
 from flask_cors import CORS
 import json, os, re, random
 from twilio.twiml.messaging_response import MessagingResponse
 
-app = Flask(__name__, static_url_path="", static_folder=".")
+# Serve only from /static so secrets like users.json aren't downloadable
+app = Flask(__name__, static_url_path="", static_folder="static")
 CORS(app)
 
 DATA_FILE = "users.json"
@@ -12,7 +13,6 @@ ALLOWED_TRACKS = {
     "GMAT","GRE","SAT","ACT","LSAT",
     "CPA","CMA","CFA Level I","CFA Level II","CFA Level III"
 }
-
 
 # -------- storage ----------
 def load_users():
@@ -44,10 +44,8 @@ def make_question(track: str):
     Super-simple generator by track (you can expand later).
     Returns: (prompt_text, correct_numeric_answer, tiny_explainer)
     """
-    # For now everything uses arithmetic; later you can branch by track.
     a = random.randint(100, 999)
     b = random.randint(10, 99)
-    # Randomly choose +/- to keep it friendly in SMS
     if random.random() < 0.5:
         prompt = f"{a} - {b}"
         ans = a - b
@@ -118,7 +116,6 @@ def signup():
         "per_day": per_day,
         "timezone": timezone,
         "consent": True,
-        # keep running stats + last_q
         "stats": existing.get("stats") if existing else {"sent": 0, "answered": 0, "correct": 0},
         "last_q": existing.get("last_q") if existing else None,
     }
@@ -230,6 +227,34 @@ def sms():
     # Fallback help
     return twiml("Commands: ANOTHER for a new question, reply with a number to answer, "
                  "STATS to see your progress.")
+
+# -------- admin (token-protected) ----------
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
+
+def _require_admin():
+    token = request.headers.get("X-Admin-Token") or request.args.get("token")
+    if not ADMIN_TOKEN or token != ADMIN_TOKEN:
+        abort(403)
+
+@app.get("/__admin/users")
+def admin_users():
+    _require_admin()
+    return jsonify(load_users())
+
+@app.get("/__admin/users_redacted")
+def admin_users_redacted():
+    _require_admin()
+    redacted = []
+    for u in load_users():
+        redacted.append({
+            "name": u.get("name"),
+            "phone_suffix": (u.get("phone","")[-4:] if u.get("phone") else ""),
+            "track": u.get("track"),
+            "per_day": u.get("per_day"),
+            "timezone": u.get("timezone"),
+            "stats": u.get("stats", {}),
+        })
+    return jsonify(redacted)
 
 # -------- pages ----------
 @app.get("/")
