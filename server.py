@@ -1,4 +1,4 @@
-# server.py (with /sms route)
+# server.py (diagnostic-friendly: /sms accepts GET & POST)
 import os, re, json
 from datetime import datetime
 from flask import Flask, request, jsonify, Response
@@ -14,6 +14,9 @@ from tracks import (
     grade_math_q,
 )
 
+# -----------------------------
+# App & static pages
+# -----------------------------
 app = Flask(__name__, static_url_path="", static_folder=".")
 CORS(app)
 
@@ -33,6 +36,9 @@ def preferences_page():
 def how_page():
     return app.send_static_file("how.html")
 
+# -----------------------------
+# Env & Twilio
+# -----------------------------
 load_dotenv()
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
 TWILIO_AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
@@ -45,6 +51,9 @@ def send_sms(to: str, body: str):
         return
     _twilio.messages.create(from_=TWILIO_FROM, to=to, body=body)
 
+# -----------------------------
+# Persistence
+# -----------------------------
 USERS_FILE = os.getenv("USERS_FILE", "users.json")
 
 def load_users():
@@ -78,6 +87,9 @@ def normalize_phone(phone: str) -> str:
         return "+" + digits
     return s
 
+# -----------------------------
+# Signup: create/update user + immediate SMS
+# -----------------------------
 @app.post("/signup")
 def signup():
     data = request.get_json(force=True, silent=True) or {}
@@ -87,6 +99,7 @@ def signup():
     per_day = int(data.get("per_day") or 1)
     timezone = (data.get("timezone") or "").strip()
     consent = bool(data.get("consent"))
+
     if not phone:
         return jsonify({"error": "Phone required"}), 400
 
@@ -106,13 +119,14 @@ def signup():
         for k in ("stats", "open", "daily_schedule", "subscribed", "next_delivery"):
             if k in existing and k not in record:
                 record[k] = existing[k]
-        idx = users.index(existing)
-        users[idx] = record
+        users[users.index(existing)] = record
     else:
         record["created_at"] = datetime.utcnow().isoformat() + "Z"
         users.append(record)
+
     save_users(users)
 
+    # Immediate welcome + first question
     instructions = (
         "Welcome to BrainTrain Daily!\n"
         "How it works:\n"
@@ -120,7 +134,6 @@ def signup():
         "• Reply with your answer for instant feedback.\n"
         "• Text STOP any time to unsubscribe."
     )
-
     first_q_text = None
     try:
         q = pick_sample_question(track)
@@ -142,9 +155,13 @@ def signup():
             first_q_text = mq["question"]
         except Exception:
             first_q_text = "First question coming up—reply NEXT if you don’t see it."
+
     send_sms(phone, instructions + "\n\n" + first_q_text)
     return jsonify({"ok": True})
 
+# -----------------------------
+# Basic prefs endpoints (unchanged)
+# -----------------------------
 @app.get("/me")
 def me():
     phone = normalize_phone(request.args.get("phone") or "")
@@ -173,20 +190,40 @@ def update():
     save_users(users)
     return jsonify({"ok": True})
 
+# -----------------------------
+# Twilio SMS webhook
+# -----------------------------
 def reply_twiml(*messages):
     parts = [f"<Message>{m}</Message>" for m in messages if m]
     xml = f'<?xml version="1.0" encoding="UTF-8"?><Response>{"".join(parts)}</Response>'
     return Response(xml, status=200, mimetype="application/xml")
 
-@app.route("/sms", methods=["POST"])
+# Allow GET temporarily so you can visit /sms in a browser and see "OK".
+@app.route("/sms", methods=["GET", "POST"])
 def sms_webhook():
+    if request.method == "GET":
+        # Diagnostic response so you know this service is the one Twilio should hit.
+        return Response("OK: /sms endpoint is reachable (GET). Twilio must use POST.", mimetype="text/plain", status=200)
+
+    # POST (from Twilio)
     from_phone = (request.values.get("From") or "").strip()
     body = (request.values.get("Body") or "").strip().upper()
+
     if body == "HELP":
-        return reply_twiml("Commands:", "NEXT - get a new question now", "STOP - unsubscribe")
+        return reply_twiml(
+            "Commands:",
+            "NEXT - get a new question now",
+            "STOP - unsubscribe"
+        )
+
     if body == "NEXT" or body == "":
+        # Simple placeholder; you can wire this to tracks.py if desired.
         return reply_twiml("Here’s your next question!")
+
     return reply_twiml("Reply NEXT for a question, or HELP for commands.")
 
+# -----------------------------
+# Dev server
+# -----------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")), debug=True)
