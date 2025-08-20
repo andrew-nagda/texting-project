@@ -1,12 +1,11 @@
-# server.py (with /sms route added)
+# server.py (with /sms route)
 import os, re, json
 from datetime import datetime
-from flask import Flask, request, jsonify, Response   # <-- Response added here
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
 from twilio.rest import Client
 
-# track/question logic
 from tracks import (
     QUESTIONS,
     pick_sample_question,
@@ -15,9 +14,6 @@ from tracks import (
     grade_math_q,
 )
 
-# -----------------------------
-# App & static pages
-# -----------------------------
 app = Flask(__name__, static_url_path="", static_folder=".")
 CORS(app)
 
@@ -37,26 +33,18 @@ def preferences_page():
 def how_page():
     return app.send_static_file("how.html")
 
-# -----------------------------
-# Env & Twilio
-# -----------------------------
 load_dotenv()
-
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
 TWILIO_AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
-TWILIO_FROM        = os.getenv("TWILIO_FROM", "").strip()  # <-- put your toll-free number here
+TWILIO_FROM        = os.getenv("TWILIO_FROM", "").strip()
 
 _twilio = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN) else None
 
 def send_sms(to: str, body: str):
-    """Send an SMS via Twilio if creds are present."""
     if not (_twilio and TWILIO_FROM and to and body):
         return
     _twilio.messages.create(from_=TWILIO_FROM, to=to, body=body)
 
-# -----------------------------
-# Persistence
-# -----------------------------
 USERS_FILE = os.getenv("USERS_FILE", "users.json")
 
 def load_users():
@@ -90,9 +78,6 @@ def normalize_phone(phone: str) -> str:
         return "+" + digits
     return s
 
-# -----------------------------
-# API: signup
-# -----------------------------
 @app.post("/signup")
 def signup():
     data = request.get_json(force=True, silent=True) or {}
@@ -102,7 +87,6 @@ def signup():
     per_day = int(data.get("per_day") or 1)
     timezone = (data.get("timezone") or "").strip()
     consent = bool(data.get("consent"))
-
     if not phone:
         return jsonify({"error": "Phone required"}), 400
 
@@ -127,10 +111,8 @@ def signup():
     else:
         record["created_at"] = datetime.utcnow().isoformat() + "Z"
         users.append(record)
-
     save_users(users)
 
-    # Immediate welcome SMS
     instructions = (
         "Welcome to BrainTrain Daily!\n"
         "How it works:\n"
@@ -160,13 +142,9 @@ def signup():
             first_q_text = mq["question"]
         except Exception:
             first_q_text = "First question coming up—reply NEXT if you don’t see it."
-
     send_sms(phone, instructions + "\n\n" + first_q_text)
     return jsonify({"ok": True})
 
-# -----------------------------
-# API: helpers
-# -----------------------------
 @app.get("/me")
 def me():
     phone = normalize_phone(request.args.get("phone") or "")
@@ -195,9 +173,6 @@ def update():
     save_users(users)
     return jsonify({"ok": True})
 
-# -----------------------------
-# Twilio SMS webhook (new)
-# -----------------------------
 def reply_twiml(*messages):
     parts = [f"<Message>{m}</Message>" for m in messages if m]
     xml = f'<?xml version="1.0" encoding="UTF-8"?><Response>{"".join(parts)}</Response>'
@@ -207,21 +182,11 @@ def reply_twiml(*messages):
 def sms_webhook():
     from_phone = (request.values.get("From") or "").strip()
     body = (request.values.get("Body") or "").strip().upper()
-
     if body == "HELP":
-        return reply_twiml(
-            "Commands:",
-            "NEXT - get a new question now",
-            "STOP - unsubscribe"
-        )
-
+        return reply_twiml("Commands:", "NEXT - get a new question now", "STOP - unsubscribe")
     if body == "NEXT" or body == "":
         return reply_twiml("Here’s your next question!")
-
     return reply_twiml("Reply NEXT for a question, or HELP for commands.")
 
-# -----------------------------
-# Dev server
-# -----------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")), debug=True)
