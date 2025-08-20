@@ -314,12 +314,22 @@ scheduler.start()
 # Twilio helpers
 # -----------------------------
 def _twiml(*messages):
-    """Generate a TwiML response with one message per argument."""
+    """Generate a TwiML response with one message per argument.
+
+    Twilio expects a valid XML payload with a ``text/xml`` content type.
+    If an empty or ``None`` message is provided we simply skip it so that
+    the resulting TwiML is always well‑formed.  Using ``html.escape`` guards
+    against any stray characters that could break the XML document.
+    """
+
     resp = MessagingResponse()
     for m in messages:
-        if m:
-            resp.message(m)
-    return Response(str(resp), status=200, mimetype="application/xml")
+        if not m:
+            continue
+        resp.message(html.escape(m))
+
+    xml = str(resp)
+    return Response(xml, status=200, mimetype="text/xml")
 
 def _welcome_text(user):
     tzname = (user.get("timezone") or DEFAULT_TZ).split("/")[-1]
