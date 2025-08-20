@@ -10,6 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 
 from twilio.rest import Client
+from twilio.twiml.messaging_response import MessagingResponse
 
 # Your track / question logic
 from tracks import (
@@ -313,9 +314,12 @@ scheduler.start()
 # Twilio helpers
 # -----------------------------
 def _twiml(*messages):
-    parts = [f"<Message>{html.escape(m)}</Message>" for m in messages if m]
-    xml = f'<?xml version="1.0" encoding="UTF-8"?><Response>{"".join(parts)}</Response>'
-    return Response(xml, status=200, mimetype="application/xml")
+    """Generate a TwiML response with one message per argument."""
+    resp = MessagingResponse()
+    for m in messages:
+        if m:
+            resp.message(m)
+    return Response(str(resp), status=200, mimetype="application/xml")
 
 def _welcome_text(user):
     tzname = (user.get("timezone") or DEFAULT_TZ).split("/")[-1]
