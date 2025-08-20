@@ -1,27 +1,32 @@
 # server.py — randomized per-user scheduling, grading, tracks-aware
 import os, re, json, html, random
 from datetime import datetime, timedelta
+
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
+
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
+
 from twilio.rest import Client
 
-# Question/Grading logic from your tracks.py
+# Your track / question logic
 from tracks import (
-    QUESTIONS,
-    pick_sample_question,
-    make_math_question,
-    grade_answer,
-    grade_math_q,
+    QUESTIONS,              # dict of tracks
+    pick_sample_question,   # returns {id, q, choices, ...}
+    make_math_question,     # returns {qid, question, ...}
+    grade_answer,           # (track, qid, user_answer) -> {correct, rationale, tip}
+    grade_math_q,           # (qid, user_answer) -> {correct, expected, units, rationale}
 )
 
 # -----------------------------
 # App & static hosting
 # -----------------------------
 load_dotenv()
-app = Flask(__name__, static_url_path="", static_folder=".")
+
+# IMPORTANT: static files are in ./static
+app = Flask(__name__, static_url_path="", static_folder="static")
 CORS(app)
 
 @app.get("/")
@@ -56,12 +61,13 @@ TWILIO_FROM        = os.getenv("TWILIO_FROM", "").strip()
 _twilio = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN) else None
 
 def send_sms(to: str, body: str):
+    """Send an SMS via Twilio (no-op if creds missing)."""
     if not (_twilio and TWILIO_FROM and to and body):
         return
     _twilio.messages.create(from_=TWILIO_FROM, to=to, body=body)
 
 # -----------------------------
-# Persistence
+# Persistence helpers
 # -----------------------------
 def _load_users():
     if not os.path.exists(USERS_FILE):
@@ -131,21 +137,22 @@ def _ensure_user(phone: str):
     return u, users
 
 # -----------------------------
-# Question composition
+# Building/sending questions
 # -----------------------------
 def _compose_question_text(track: str):
     """
-    Try sample MCQ first; else math fallback. Returns (text, payload_for_open).
-    payload carries what we need to grade later.
+    Prefer a sample MCQ from the chosen track; fall back to a math question.
+    Returns (text, payload_for_open).
     """
-    # 1) Sample MCQ
+    # A) Sample MCQ
     try:
         q = pick_sample_question(track)
         if isinstance(q, dict) and q.get("q"):
             labels = "ABCDE"
             lines = [q["q"]]
             for i, choice in enumerate(q.get("choices") or []):
-                if i >= len(labels): break
+                if i >= len(labels):
+                    break
                 lines.append(f"{labels[i]}. {choice}")
             if q.get("choices"):
                 lines.append("Reply with A–E.")
@@ -154,7 +161,7 @@ def _compose_question_text(track: str):
     except Exception:
         pass
 
-    # 2) Math fallback
+    # B) Math fallback
     try:
         m = make_math_question(track) or make_math_question("General")
         payload = {"kind": "math", "qid": m.get("qid")}
@@ -162,7 +169,7 @@ def _compose_question_text(track: str):
     except Exception:
         pass
 
-    return "Sorry, I couldn’t generate a question right now. Please text NEXT again.", {"kind":"none"}
+    return "Sorry, I couldn’t generate a question right now. Please text NEXT again.", {"kind": "none"}
 
 def _open_and_send_question(user):
     text, payload = _compose_question_text(user.get("track", "Consulting"))
@@ -172,9 +179,13 @@ def _open_and_send_question(user):
     return text
 
 # -----------------------------
-# Grading
+# Grading & feedback
 # -----------------------------
 def _grade_open(user, raw_text: str):
+    """
+    Grade the user's reply against the currently open question and
+    include 'how to do better' (tip) from tracks.py when available.
+    """
     open_q = user.get("open")
     if not open_q:
         return None
@@ -188,6 +199,7 @@ def _grade_open(user, raw_text: str):
         res = grade_answer(track, qid, ans_text)
         if "error" in res:
             return {"body": "Sorry—I couldn’t grade that. Reply with A, B, C, D, or E."}
+
         correct = bool(res.get("correct"))
         user["stats"]["asked"] += 1
         if correct:
@@ -201,7 +213,7 @@ def _grade_open(user, raw_text: str):
         parts = ["Correct." if correct else "Not quite."]
         if res.get("rationale"):
             parts.append(f"Why: {res['rationale']}")
-        if res.get("tip"):
+        if res.get("tip"):  # << how to do better next time
             parts.append(f"Tip: {res['tip']}")
         parts.append("Reply NEXT for another question.")
         return {"body": "\n".join(parts)}
@@ -212,6 +224,7 @@ def _grade_open(user, raw_text: str):
         res = grade_math_q(qid, ans_text)
         if "error" in res:
             return {"body": "I couldn’t parse that number. Try digits (and % if needed)."}
+
         correct = bool(res.get("correct"))
         user["stats"]["asked"] += 1
         if correct:
@@ -227,25 +240,29 @@ def _grade_open(user, raw_text: str):
         parts = ["Correct." if correct else f"Not quite. Expected {expected}{(' ' + units) if units else ''}."]
         if res.get("rationale"):
             parts.append(f"Why: {res['rationale']}")
+        if res.get("tip"):
+            parts.append(f"Tip: {res['tip']}")
         parts.append("Reply NEXT for another question.")
         return {"body": "\n".join(parts)}
 
     return {"body": "Unknown question type. Reply NEXT for a new one."}
 
 # -----------------------------
-# Randomized per-user schedule
+# Random schedule per user
 # -----------------------------
 def _rand_local_minutes(n: int, tz):
-    """Pick n unique random minute instants between WINDOW_START_HOUR and WINDOW_END_HOUR (inclusive start, inclusive end) for *today* in user's tz."""
+    """
+    Pick n unique random minute instants today between WINDOW_START_HOUR and WINDOW_END_HOUR
+    in the user's local tz.
+    """
     n = max(1, min(3, int(n)))
     today = datetime.now(tz).replace(hour=WINDOW_START_HOUR, minute=0, second=0, microsecond=0)
     end = today.replace(hour=WINDOW_END_HOUR, minute=0)
-    span = int((end - today).total_seconds() // 60)
+    span = max(0, int((end - today).total_seconds() // 60))
     chosen = set()
     while len(chosen) < n:
         offset = random.randint(0, span)
         when = today + timedelta(minutes=offset)
-        # normalize to minute
         when = when.replace(second=0, microsecond=0)
         chosen.add(when)
     return sorted(list(chosen))
@@ -255,10 +272,8 @@ def _ensure_todays_schedule(user):
     today_local = _today_local_date_str(tz)
     sched = user.get("schedule") or {}
     if sched.get("local_date") != today_local:
-        # Generate fresh schedule for today
         per_day = max(1, min(3, int(user.get("per_day") or 1)))
         local_slots = _rand_local_minutes(per_day, tz)
-        # Convert to UTC ISO strings
         remaining_utc = [slot.astimezone(pytz.UTC).isoformat() for slot in local_slots]
         user["schedule"] = {"local_date": today_local, "remaining_utc": remaining_utc}
         user["updated_at"] = datetime.utcnow().isoformat() + "Z"
@@ -274,21 +289,17 @@ def _pop_due_utc(user):
         user["updated_at"] = datetime.utcnow().isoformat() + "Z"
     return due
 
-# run every minute
 scheduler = BackgroundScheduler(timezone=pytz.UTC)
+
 def _minute_tick():
     users = _load_users()
     changed = False
-    now_utc = _now_utc_minute()
     for u in users:
         if not u.get("subscribed", True):
             continue
-        # Build today's schedule if needed
         _ensure_todays_schedule(u)
-        # See what's due now
         due = _pop_due_utc(u)
         if due:
-            # Send one question per due slot
             for _ in due:
                 _open_and_send_question(u)
             changed = True
@@ -299,7 +310,7 @@ scheduler.add_job(_minute_tick, "interval", minutes=1, id="minute_tick", replace
 scheduler.start()
 
 # -----------------------------
-# Helpers for Twilio
+# Twilio helpers
 # -----------------------------
 def _twiml(*messages):
     parts = [f"<Message>{html.escape(m)}</Message>" for m in messages if m]
@@ -312,7 +323,7 @@ def _welcome_text(user):
         "Welcome to BrainTrain Daily!\n"
         f"You’ll receive {user.get('per_day',1)} question(s) randomly between "
         f"{WINDOW_START_HOUR:02d}:00–{WINDOW_END_HOUR:02d}:00 {tzname}.\n"
-        "Commands: HELP, NEXT, TRACK <name>, FREQ <1-3>, TIMEZONE <IANA>.\n"
+        "Commands: HELP, NEXT, TRACK <name>, FREQ <1-3>, TIMEZONE <Area/City>.\n"
         "Unsubscribe any time: STOP."
     )
 
@@ -321,32 +332,36 @@ def _welcome_text(user):
 # -----------------------------
 @app.post("/signup")
 def signup():
+    """
+    JSON body: {phone, name?, track?, per_day?, timezone?}
+    - creates/updates the user
+    - sends onboarding + first question immediately
+    - builds today’s schedule for future random sends
+    """
     data = request.get_json(force=True, silent=True) or {}
     phone = _normalize_phone(data.get("phone") or "")
     if not phone:
         return jsonify({"error": "Phone required"}), 400
 
     u, users = _ensure_user(phone)
-    # Allow setting name/track/per_day/timezone from form
     for k in ("name", "track", "timezone"):
         if data.get(k) is not None:
             u[k] = data[k]
     if data.get("per_day") is not None:
         try:
-            v = int(data["per_day"])
-            u["per_day"] = max(1, min(3, v))
+            u["per_day"] = max(1, min(3, int(data["per_day"])))
         except Exception:
             pass
+
     u["subscribed"] = True
-    # Join tomorrow's randomized schedule (they already get an immediate question now)
     tz = _user_tz(u)
     u["schedule"] = {"local_date": _today_local_date_str(tz), "remaining_utc": []}
     _ensure_todays_schedule(u)
     _save_users(users)
 
-    # Send onboarding + first question NOW
+    # Onboarding + first question right now
     instructions = _welcome_text(u)
-    text, payload = _compose_question_text(u.get("track","Consulting"))
+    text, payload = _compose_question_text(u.get("track", "Consulting"))
     u["open"] = payload
     _save_users(users)
     send_sms(u["phone"], instructions + "\n\n" + text)
@@ -412,7 +427,7 @@ def sms():
         return _twiml("You are re-subscribed.", _welcome_text(u))
 
     # HELP
-    if text_upper == "HELP" or text_upper in {"H", "?"}:
+    if text_upper in {"HELP", "H", "?"}:
         tracks_line = ", ".join(_list_tracks()[:10]) + ("..." if len(_list_tracks()) > 10 else "")
         return _twiml(
             "Commands:",
@@ -432,8 +447,7 @@ def sms():
             return _twiml("Unknown track. Options: " + ", ".join(_list_tracks()))
         u["track"] = choice
         _save_users(users)
-        # Send an immediate question in the new track
-        text, payload = _compose_question_text(choice)
+        text, payload = _compose_question_text(choice)  # send a fresh question in the new track
         u["open"] = payload
         _save_users(users)
         return _twiml(f"Track changed to {choice}.", text)
@@ -446,7 +460,6 @@ def sms():
             return _twiml("Please send FREQ 1, FREQ 2, or FREQ 3.")
         val = max(1, min(3, int(digits)))
         u["per_day"] = val
-        # Rebuild today’s schedule to respect new frequency
         tz = _user_tz(u)
         u["schedule"] = {"local_date": _today_local_date_str(tz), "remaining_utc": []}
         _ensure_todays_schedule(u)
@@ -462,20 +475,19 @@ def sms():
         except Exception:
             return _twiml("Invalid timezone. Example: TIMEZONE America/Los_Angeles")
         u["timezone"] = z
-        # Rebuild schedule in new zone
         u["schedule"] = {"local_date": _today_local_date_str(_user_tz(u)), "remaining_utc": []}
         _ensure_todays_schedule(u)
         _save_users(users)
         return _twiml(f"Timezone set to {z}.")
 
-    # NEXT (or empty body)
+    # NEXT (or empty)
     if text_upper == "NEXT" or body.strip() == "":
-        text, payload = _compose_question_text(u.get("track","Consulting"))
+        text, payload = _compose_question_text(u.get("track", "Consulting"))
         u["open"] = payload
         _save_users(users)
         return _twiml(text)
 
-    # Otherwise: try grading if an open Q exists
+    # Otherwise: try grading if there’s an open question
     graded = _grade_open(u, body)
     if graded:
         _save_users(users)
@@ -488,5 +500,4 @@ def sms():
 # Entrypoint
 # -----------------------------
 if __name__ == "__main__":
-    # Railway/Heroku honors PORT env
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")), debug=True)
