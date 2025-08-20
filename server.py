@@ -419,19 +419,24 @@ def sms():
 
     u, users = _ensure_user(from_phone)
     text_upper = body.upper()
+    parts = text_upper.split()
+    cmd_raw = parts[0] if parts else ""
+    cmd = re.sub(r"[^A-Z]", "", cmd_raw)
+    if not cmd and "?" in cmd_raw:
+        cmd = "?"
 
     # Opt-out / in
-    if text_upper in {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}:
+    if cmd in {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}:
         u["subscribed"] = False
         _save_users(users)
         return _twiml("You have been unsubscribed. Text START to re-subscribe.")
-    if text_upper == "START":
+    if cmd == "START":
         u["subscribed"] = True
         _save_users(users)
         return _twiml("You are re-subscribed.", _welcome_text(u))
 
     # HELP
-    if text_upper in {"HELP", "H", "?"}:
+    if cmd in {"HELP", "H", "?"}:
         tracks_line = ", ".join(_list_tracks()[:10]) + ("..." if len(_list_tracks()) > 10 else "")
         return _twiml(
             "Commands:",
@@ -444,7 +449,7 @@ def sms():
         )
 
     # TRACK change
-    if text_upper.startswith("TRACK "):
+    if cmd == "TRACK":
         _, _, maybe = body.partition(" ")
         choice = (maybe or "").strip()
         if choice not in QUESTIONS:
@@ -457,7 +462,7 @@ def sms():
         return _twiml(f"Track changed to {choice}.", text)
 
     # FREQ change
-    if text_upper.startswith("FREQ "):
+    if cmd == "FREQ":
         _, _, maybe = body.partition(" ")
         digits = re.sub(r"\D", "", maybe or "")
         if not digits:
@@ -471,7 +476,7 @@ def sms():
         return _twiml(f"Frequency updated: {val} per day between {WINDOW_START_HOUR:02d}:00–{WINDOW_END_HOUR:02d}:00.")
 
     # TIMEZONE change
-    if text_upper.startswith("TIMEZONE "):
+    if cmd == "TIMEZONE":
         _, _, maybe = body.partition(" ")
         z = (maybe or "").strip()
         try:
@@ -485,7 +490,7 @@ def sms():
         return _twiml(f"Timezone set to {z}.")
 
     # NEXT (or empty)
-    if text_upper == "NEXT" or body.strip() == "":
+    if cmd == "NEXT" or body.strip() == "":
         text, payload = _compose_question_text(u.get("track", "Consulting"))
         u["open"] = payload
         _save_users(users)
