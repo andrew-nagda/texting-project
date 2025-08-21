@@ -431,14 +431,42 @@ def grade_answer(track: str, qid: str, answer: str):
     qs = QUESTIONS.get(track) or []
     for q in qs:
         if q["id"] == qid:
-            correct = (answer.strip() == q["answer"])
+            user_raw = (answer or "").strip()
+            user_up  = user_raw.upper()
+
+            # Allow A–E or 1–5
+            choices = q.get("choices") or []
+            letter_map = {chr(65 + i): c for i, c in enumerate(choices)}  # A,B,C,D,E...
+            if user_up in letter_map:
+                user_choice = letter_map[user_up]
+            elif user_up.isdigit() and 1 <= int(user_up) <= len(choices):
+                user_choice = choices[int(user_up) - 1]
+            else:
+                # Fall back to matching full text, case-insensitive
+                user_choice = next(
+                    (c for c in choices if c.strip().upper() == user_up),
+                    user_raw,
+                )
+
+            correct_text = q["answer"]
+            correct = correct_text.strip().upper() == str(user_choice).strip().upper()
+
+            # Compute the correct letter if we have choices
+            try:
+                idx = choices.index(correct_text)
+                correct_letter = "ABCDE"[idx]
+            except Exception:
+                correct_letter = None
+
             return {
                 "correct": correct,
-                "correct_answer": q["answer"],
-                "rationale": q["rationale"],
-                "tip": q["tip"],
+                "correct_answer": correct_text,
+                "correct_letter": correct_letter,
+                "rationale": q.get("rationale"),
+                "tip": q.get("tip"),
             }
     return {"error": "Question not found"}
+
 
 
 # ---------- mental math generators (expanded consulting context) ----------
