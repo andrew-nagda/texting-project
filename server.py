@@ -6,6 +6,8 @@ from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from dotenv import load_dotenv
 from typing import Optional
+import uuid
+from openai import OpenAI
 
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -65,6 +67,12 @@ TWILIO_FROM        = os.getenv("TWILIO_FROM", "").strip()
 init_db()
 
 _twilio = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN) else None
+
+# ---------- OpenAI config ----------
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+USE_OPENAI_QUESTIONS = os.getenv("USE_OPENAI_QUESTIONS", "1") == "1"
+_openai_client = OpenAI() if os.getenv("OPENAI_API_KEY") else None
+
 
 def send_sms(to: str, body: str):
     """Send an SMS via Twilio (no-op if creds missing)."""
@@ -157,15 +165,106 @@ def _save(session, user: User):
 # -----------------------------
 # Building/sending questions
 # -----------------------------
+def _fewshot_examples(track: str, k: int = 3) -> str:
+    """Return up to k example Q&As from your sample bank to guide the model."""
+    qs = (QUESTIONS.get(track) or [])[:k]
+    blocks = []
+    for i, q in enumerate(qs, 1):
+        ch = "; ".join(q.get("choices") or [])
+        blocks.append(
+            f"Example {i}\n"
+            f"Question: {q['q']}\n"
+            f"Choices: {ch}\n"
+            f"Answer: {q['answer']}\n"
+            f"Rationale: {q.get('rationale','')}\n"
+        )
+    return "\n".join(blocks)
+
+def _gen_ai_mcq(track: str):
+    """
+    Ask OpenAI for ONE new multiple-choice question for the given track.
+    Returns (text_to_send, open_payload) or None on failure.
+    open_payload is stored in user.open for grading later.
+    """
+    if not (USE_OPENAI_QUESTIONS and _openai_client):
+        return None
+
+    examples = _fewshot_examples(track, k=3)
+    system = (
+        "You are an assessment author. Create a single, high-quality, business-style "
+        "multiple-choice question that tests applied judgment in the requested track. "
+        "Difficulty: medium. Choices must be plausible and distinct. Avoid trivia."
+    )
+    user = (
+        f"Track: {track}\n\n"
+        "Use the examples below only as style guides; DO NOT repeat their wording.\n"
+        f"{examples}\n\n"
+        "Now generate ONE new question. Return STRICT JSON with keys:\n"
+        '{"question": str, "choices": [str, str, str, str, (str)], '
+        '"correct_letter": "A|B|C|D|E", "explanation": str}\n'
+        "Do not include any extra keys or commentary."
+    )
+
+    try:
+        resp = _openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0.6,
+        )
+        data = json.loads(resp.choices[0].message.content)
+        question = data["question"].strip()
+        choices  = [c.strip() for c in data["choices"]]
+        letter   = data["correct_letter"].strip().upper()
+        expl     = data.get("explanation", "").strip()
+
+        letters = "ABCDE"
+        if letter not in letters or not (4 <= len(choices) <= 5):
+            return None
+        idx = letters.index(letter)
+        if idx >= len(choices):
+            return None
+
+        qid = f"ai-{uuid.uuid4().hex[:10]}"
+        # SMS text to send
+        lines = [question]
+        for i, c in enumerate(choices):
+            lines.append(f"{letters[i]}. {c}")
+        lines.append("Reply with A–E.")
+        text = "\n".join(lines)
+
+        payload = {
+            "kind": "ai_mcq",
+            "qid": qid,
+            "track": track,
+            "choices": choices,
+            "correct_letter": letter,
+            "explanation": expl,
+        }
+        return text, payload
+    except Exception:
+        return None
+
+
 def _compose_question_text(track: str):
     """
-    Prefer a sample MCQ from the chosen track; fall back to a math question.
+    Prefer an AI-generated MCQ for the track. Fall back to sample or math on failure.
     Returns (text, payload_for_open).
     """
-    # A) Sample MCQ
+    # A) AI-generated MCQ
+    ai = _gen_ai_mcq(track)
+    if ai:
+        return ai  # (text, payload)
+
+    # B) Sample MCQ fallback (random)
     try:
-        q = pick_sample_question(track)
-        if isinstance(q, dict) and q.get("q"):
+        qs = QUESTIONS.get(track) or []
+        if qs:
+            import random as _rnd
+            q = _rnd.choice(qs)
             labels = "ABCDE"
             lines = [q["q"]]
             for i, choice in enumerate(q.get("choices") or []):
@@ -179,7 +278,7 @@ def _compose_question_text(track: str):
     except Exception:
         pass
 
-    # B) Math fallback
+    # C) Math fallback
     try:
         m = make_math_question(track) or make_math_question("General")
         payload = {"kind": "math", "qid": m.get("qid"), "track": track}
@@ -201,65 +300,126 @@ def _open_and_send_question(session, user: User):
 # -----------------------------
 def _grade_open(session, user: User, raw_text: str):
     """
-    Grade the user's reply against the currently open question and
-    include 'how to do better' (tip) when available.
+    Grade the user's reply against the currently open question.
+    Supports: 'ai_mcq', 'sample', and 'math'.
     """
     open_q = user.open or {}
     if not open_q:
         return None
 
-    ans_text = (raw_text or "").strip()
+    ans_raw = (raw_text or "").strip()
+    ans_up  = ans_raw.upper()
     stats = dict(user.stats or {"asked": 0, "correct": 0, "streak": 0})
 
-    # A) Sample multiple choice (A–E)
-    if open_q.get("kind") == "sample":
-        track = open_q.get("track") or user.track or "Consulting"
-        qid = open_q.get("qid")
-        res = grade_answer(track, qid, ans_text)
-        if "error" in res:
-            return {"body": "Sorry—I couldn’t grade that. Reply with A, B, C, D, or E."}
+    def _map_to_choice(choices, up: str, raw: str):
+        """Map A–E / 1–5 / full-text (case-insensitive) to a choice string."""
+        letters = "ABCDE"
+        letter_map = {letters[i]: c for i, c in enumerate(choices) if i < len(letters)}
+        if up in letter_map:
+            return letter_map[up]
+        if up.isdigit() and 1 <= int(up) <= len(choices):
+            return choices[int(up) - 1]
+        return next((c for c in choices if c.strip().upper() == up), raw)
 
-        correct = bool(res.get("correct"))
+    # ---------- AI MCQ ----------
+    if open_q.get("kind") == "ai_mcq":
+        choices = open_q.get("choices") or []
+        letter  = (open_q.get("correct_letter") or "").strip().upper()
+        letters = "ABCDE"
+        idx = letters.find(letter)
+        correct_text = choices[idx] if 0 <= idx < len(choices) else None
+
+        user_choice = _map_to_choice(choices, ans_up, ans_raw)
+        correct = (str(user_choice).strip().upper() == str(correct_text).strip().upper())
+
         stats["asked"] = stats.get("asked", 0) + 1
         if correct:
             stats["correct"] = stats.get("correct", 0) + 1
-            stats["streak"] = stats.get("streak", 0) + 1
+            stats["streak"]  = stats.get("streak", 0) + 1
         else:
-            stats["streak"] = 0
+            stats["streak"]  = 0
+
         user.stats = stats
-        user.open = None
+        user.open  = None
         _save(session, user)
 
-        parts = ["Correct." if correct else "Not quite."]
-        if res.get("rationale"):
-            parts.append(f"Why: {res['rationale']}")
-        if res.get("tip"):
-            parts.append(f"Tip: {res['tip']}")
+        parts = []
+        if correct:
+            parts.append("Correct.")
+        else:
+            if letter and correct_text:
+                parts.append(f"Not quite. Correct answer: {letter}. {correct_text}")
+            else:
+                parts.append("Not quite.")
+        expl = (open_q.get("explanation") or "").strip()
+        if expl:
+            parts.append(f"Why: {expl}")
         parts.append("Reply NEXT for another question.")
         return {"body": "\n".join(parts)}
 
-    # B) Math numeric
-    if open_q.get("kind") == "math":
-        qid = open_q.get("qid")
+    # ---------- Sample MCQ (your originals) ----------
+    if open_q.get("kind") == "sample":
         track = open_q.get("track") or user.track or "Consulting"
-        # FIXED: pass track, qid, answer (the original code passed only two args)
-        res = grade_math_q(track, qid, ans_text)
+        qid   = str(open_q.get("qid"))
+        qs = QUESTIONS.get(track) or []
+        q  = next((qq for qq in qs if str(qq.get("id")) == qid), None)
+        if not q:
+            return {"body": "Sorry—I couldn't find that question. Reply NEXT for a new one."}
+        choices = q.get("choices") or []
+        correct_text = q.get("answer")
+        user_choice = _map_to_choice(choices, ans_up, ans_raw)
+        correct = (str(user_choice).strip().upper() == str(correct_text).strip().upper())
+        try:
+            idx = choices.index(correct_text)
+            corr_letter = "ABCDE"[idx]
+        except Exception:
+            corr_letter = None
+
+        stats["asked"] = stats.get("asked", 0) + 1
+        if correct:
+            stats["correct"] = stats.get("correct", 0) + 1
+            stats["streak"]  = stats.get("streak", 0) + 1
+        else:
+            stats["streak"]  = 0
+        user.stats = stats
+        user.open  = None
+        _save(session, user)
+
+        parts = []
+        if correct:
+            parts.append("Correct.")
+        else:
+            if corr_letter:
+                parts.append(f"Not quite. Correct answer: {corr_letter}. {correct_text}")
+            else:
+                parts.append(f"Not quite. Correct answer: {correct_text}")
+        if q.get("rationale"):
+            parts.append(f"Why: {q['rationale']}")
+        if q.get("tip"):
+            parts.append(f"Tip: {q['tip']}")
+        parts.append("Reply NEXT for another question.")
+        return {"body": "\n".join(parts)}
+
+    # ---------- Math / numeric ----------
+    if open_q.get("kind") == "math":
+        track = open_q.get("track") or user.track or "Consulting"
+        qid   = open_q.get("qid")
+        res = grade_math_q(track, qid, ans_raw)  # 3 args required
         if "error" in res:
             return {"body": "I couldn’t parse that number. Try digits (and % if needed)."}
-
         correct = bool(res.get("correct"))
         stats["asked"] = stats.get("asked", 0) + 1
         if correct:
             stats["correct"] = stats.get("correct", 0) + 1
-            stats["streak"] = stats.get("streak", 0) + 1
+            stats["streak"]  = stats.get("streak", 0) + 1
         else:
-            stats["streak"] = 0
+            stats["streak"]  = 0
         user.stats = stats
-        user.open = None
+        user.open  = None
         _save(session, user)
 
         expected = res.get("expected")
-        units = res.get("units") or ""
+        units    = res.get("units") or ""
         parts = ["Correct." if correct else f"Not quite. Expected {expected}{(' ' + units) if units else ''}."]
         if res.get("rationale"):
             parts.append(f"Why: {res['rationale']}")
@@ -269,6 +429,8 @@ def _grade_open(session, user: User, raw_text: str):
         return {"body": "\n".join(parts)}
 
     return {"body": "Unknown question type. Reply NEXT for a new one."}
+
+
 
 # -----------------------------
 # Random schedule per user
