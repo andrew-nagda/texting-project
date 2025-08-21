@@ -6,3 +6,6 @@ twilio
 openai>=1.0.0
 apscheduler
 pytz
+requests
+SQLAlchemy
+psycopg[binary]
